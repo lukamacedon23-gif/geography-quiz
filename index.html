@@ -7,7 +7,6 @@
     <!-- Loads the official YouTube Playables SDK -->
     <script src="https://youtube.com"></script>
     <style>
-        /* Mobile-first layout configuration */
         body {
             margin: 0;
             padding: 0;
@@ -22,7 +21,7 @@
         }
         #game-container {
             width: 100%;
-            max-width: 450px; /* Constraints display to phone shape on desktop */
+            max-width: 450px;
             height: 100%;
             max-height: 800px;
             box-sizing: border-box;
@@ -57,7 +56,7 @@
             margin-bottom: 30px;
         }
         button {
-            background-color: #ff0000; /* YouTube Red theme */
+            background-color: #ff0000;
             color: white;
             border: none;
             padding: 15px;
@@ -79,12 +78,156 @@
             <span id="question-number">Question: 0/0</span>
             <span id="score-display">Score: 0</span>
         </div>
-        <div class="question-box" id="question-text">Loading Quiz Framework...</div>
-        <div class="options-container" id="options-box">
-            <!-- JavaScript generates buttons here dynamically -->
-        </div>
+        <div class="question-box" id="question-text">Loading Quiz Game...</div>
+        <div class="options-container" id="options-box"></div>
     </div>
 
-    <script src="game.js"></script>
+    <script>
+        let ytPlayablesInstance = null;
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let randomizedQuestions = [];
+        let sessionToken = "";
+
+        const backupQuestions = [
+            { q: "What is the capital of Canada?", a: ["Ottawa", "Toronto", "Vancouver"], correct: 0 },
+            { q: "True or False: The Nile is the longest river in the world.", a: ["True", "False"], correct: 0 },
+            { q: "Find the mistake: Paris is the capital city of Italy.", a: ["Paris", "capital city", "Italy"], correct: 2 },
+            { q: "What is the capital of Japan?", a: ["Kyoto", "Tokyo", "Osaka"], correct: 1 },
+            { q: "True or False: Australia is both a country and a continent.", a: ["True", "False"], correct: 0 },
+            { q: "Find the mistake: The Amazon rainforest is located primarily in Africa.", a: ["Amazon", "primarily", "Africa"], correct: 2 }
+        ];
+
+        window.addEventListener('load', () => {
+            if (typeof YTPlayables !== 'undefined') {
+                YTPlayables.init().then((instance) => {
+                    ytPlayablesInstance = instance;
+                    ytPlayablesInstance.firstFrameReady();
+                    startQuiz();
+                }).catch((err) => {
+                    console.error("YouTube SDK failed:", err);
+                    startQuiz(); 
+                });
+            } else {
+                startQuiz(); 
+            }
+        });
+
+        async function getSessionToken() {
+            try {
+                const response = await fetch('https://opentdb.com');
+                const data = await response.json();
+                if (data.response_code === 0) {
+                    sessionToken = data.token;
+                }
+            } catch (error) {
+                console.log("Token error, using local backup setup.");
+            }
+        }
+
+        function shuffleArray(array) {
+            let shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        async function fetchNewQuestions() {
+            document.getElementById('question-text').innerText = "Loading unique questions...";
+            document.getElementById('options-box').innerHTML = "";
+            
+            if (!sessionToken) {
+                await getSessionToken();
+            }
+            
+            try {
+                const response = await fetch(`https://opentdb.com{sessionToken}&cb=${Date.now()}`);
+                const data = await response.json();
+                
+                if (data.response_code === 0) {
+                    randomizedQuestions = data.results.map(item => {
+                        let answers = [...item.incorrect_answers];
+                        const correctIndex = Math.floor(Math.random() * (answers.length + 1));
+                        answers.splice(correctIndex, 0, item.correct_answer);
+                        
+                        return {
+                            q: decodeHTML(item.question),
+                            a: answers.map(ans => decodeHTML(ans)),
+                            correct: correctIndex
+                        };
+                    });
+                    showQuestion(currentQuestionIndex);
+                    return;
+                }
+                loadBackupQuestions();
+            } catch (error) {
+                loadBackupQuestions();
+            }
+        }
+
+        function loadBackupQuestions() {
+            randomizedQuestions = shuffleArray(backupQuestions);
+            showQuestion(currentQuestionIndex);
+        }
+
+        function decodeHTML(html) {
+            var txt = document.createElement("textarea");
+            txt.innerHTML = html;
+            return txt.value;
+        }
+
+        function startQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            fetchNewQuestions();
+            
+            if (ytPlayablesInstance) {
+                ytPlayablesInstance.gameReady();
+            }
+        }
+
+        function showQuestion(index) {
+            const questionTextEl = document.getElementById('question-text');
+            const optionsBoxEl = document.getElementById('options-box');
+            const qNumberEl = document.getElementById('question-number');
+            const scoreEl = document.getElementById('score-display');
+
+            scoreEl.innerText = `Score: ${score}`;
+            
+            if (randomizedQuestions.length === 0) return;
+
+            if (index >= randomizedQuestions.length) {
+                questionTextEl.innerText = `Game Over! Final Score: ${score}/${randomizedQuestions.length}`;
+                optionsBoxEl.innerHTML = `<button onclick="startQuiz()">Play Again</button>`;
+                qNumberEl.innerText = "Completed!";
+                return;
+            }
+
+            qNumberEl.innerText = `Question: ${index + 1}/${randomizedQuestions.length}`;
+            
+            let current = randomizedQuestions[index];
+            questionTextEl.innerText = current.q;
+            
+            let optionsHTML = "";
+            current.a.forEach((option, i) => {
+                optionsHTML += `<button onclick="checkAnswer(${index}, ${i})">${option}</button>`;
+            });
+            optionsBoxEl.innerHTML = optionsHTML;
+        }
+
+        function checkAnswer(qIndex, choiceIndex) {
+            if (choiceIndex === randomizedQuestions[qIndex].correct) {
+                score++;
+                alert("Correct!");
+            } else {
+                alert(`Incorrect! The right answer was: ${randomizedQuestions[qIndex].a[randomizedQuestions[qIndex].correct]}`);
+            }
+            
+            currentQuestionIndex++;
+            showQuestion(currentQuestionIndex);
+        }
+    </script>
 </body>
 </html>
